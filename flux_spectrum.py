@@ -1,41 +1,36 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy import constants
 from scipy.integrate import quad
-from matplotlib import rc
-rc('font',**{'family':'serif'})
-from matplotlib import rcParams
-rcParams['xtick.direction'] = 'out'
-rcParams['ytick.direction'] = 'out'
-rcParams['xtick.labelsize'] = 18
-rcParams['ytick.labelsize'] = 18
-rcParams['lines.linewidth'] = 1.85
-rcParams['axes.labelsize'] = 20
-rcParams.update({'figure.autolayout': True})
 
 # Boltzmann constant in eV/K
 k = constants.value('Boltzmann constant in eV/K')
 
-class Flux():
+class Flux() :
     """
-    This class evaluate neutron flux at energy e. 
+    This class evaluates the neutron spectrum.  The thermal cutoff is treated
+    as a variable parameter to ensure a specific fast-to-thermal ratio.
+    
     At thermal energy range (e < e1 eV), the flux is approximated by Maxwellian 
     distribution (D&H book Eq.(9-6)). 
+    
     At fast energy range (e2 MeV < e < 20MeV), the flux is approximated by U-235 
     chi-spectrum (D&H book Eq.(2-112)).
+    
     At epithermal energies (e1 eV < e < e2 MeV), flux = 1/e
     
-    ratio : thermal-to-fast flux ratio
+    
+    
+    ratio : fast-to-thermal flux ratio
     """
     def __init__(self, ratio = 2, thermal_temp = 600.0):
         self.e2 = 1e6
         self.thermal_temp = thermal_temp
         
         # Maxwellian distribution, Eq.(9-6)
-        self.m = lambda x : x ** 0.5 * np.exp(-x / (k * self.thermal_temp))
+        self.m = lambda x : x ** 0.5 * np.exp(-x/(k*self.thermal_temp))
 
         # U235 chi distribution, Eq.(2-112)
-        self.chi = lambda x : np.exp(-1.036e-6 * x) * np.sinh((2.29e-6 * x) ** 0.5)     
+        self.chi = lambda x : np.exp(-1.036e-6*x)*np.sinh((2.29e-6 * x)**0.5)     
                          
         # Middle energy range
         self.f = lambda x : 1 / x
@@ -44,18 +39,10 @@ class Flux():
         E = np.logspace(-4, 0.1, 200)
         R = np.array([self.compute_ratio(e1) for e1 in E])
         
-        # Create plot of ratio vs cutoff energy
-        plt.loglog(R, E)
-        plt.ylabel('Thermal Energy Cutoff [eV]')
-        plt.xlabel('thermal to non-thermal flux ratio, r')
-        plt.savefig('ratio_to_cutoff.pdf')
-        plt.clf()
-        
         # Compute thermal cutoff for given ratio
-        self.e1 = np.interp(ratio, R, E)
+        self.e1 = np.interp(1.0/ratio, R, E)
         print 'Thermal cutoff is {} eV'.format(self.e1)
-        self.ratio = ratio
-        
+
         # Compute constants for each part of the spectrum
         self.c1 = 1.0
         self.c2 = self.m(self.e1) / self.f(self.e1)
@@ -70,32 +57,51 @@ class Flux():
         r = A / (B + C)
         return r
         
-    def compute_flux(self, e):
+    def evaluate(self, e):
         # Evaluate flux at Energy e in eV
-        # thermal
-        return self.c1 * self.m(e) if e <= self.e1 else (self.c2 / e if e <= self.e2 else self.c3 * self.chi(e))
+        return  (e<=self.e1)             * self.c1*self.m(e) + \
+                (e>self.e1)*(e<=self.e2) * (self.c2 / e)     + \
+                (e>self.e2)              * self.c3*self.chi(e)
 
-# ratio of thermal flux to fast flux = 1e-5
-# neutron temperature = 600K
-f = Flux(1e-5, 600.0)
-E = np.logspace(-5, 7, 1000)
-flux = np.zeros(E.shape)
+if __name__ == "__main__" :
 
-# Compute the flux at all energies
-for i, e in enumerate(E):
-    flux[i] = f.compute_flux(e)
-lethergy = E * flux
+    import matplotlib.pyplot as plt
+    from multigroup_utilities import *
+    from nice_plots import init_nice_plots
+    init_nice_plots()
     
-# Plot the flux
-plt.loglog(E, flux)
-plt.xlabel('E (eV)')
-plt.ylabel('flux')
-plt.savefig('flux_spectrum.pdf')
-plt.clf()
-
-# Plot the lethergy
-plt.loglog(E, lethergy)
-plt.xlabel('E (eV)')
-plt.ylabel('$E\phi(E)$')
-plt.savefig('lethergy.pdf')
+    # PWR-like and TRIGA-like spectra
+    pwr = Flux(7.0, 600.0)
+    triga = Flux(1.0, 600.0)
+        
+    # Evaluate the flux
+    E = np.logspace(-5, 7, 1000)
+    phi_pwr = pwr.evaluate(E)
+    phi_triga = triga.evaluate(E)
+   
+    # Collapse the flux and flux per unit lethargy onto WIMS 69-group structure   
+    bounds = energy_groups(structure='wims69')
+    pwr_mg = collapse(bounds, phi_pwr, E)
+    triga_mg = collapse(bounds, phi_triga, E)
+    phi_mg_pul = collapse(bounds, E*phi_pwr, E)
+    triga_mg_pul = collapse(bounds, E*phi_triga, E)
     
+    # Produce step-plot data for each spectrum    
+    E_mg, phi_mg = plot_multigroup_data(bounds, pwr_mg) 
+    _, triga_mg = plot_multigroup_data(bounds, triga_mg) 
+    _, phi_mg_pul = plot_multigroup_data(bounds, phi_mg_pul) 
+    _, triga_mg_pul = plot_multigroup_data(bounds, triga_mg_pul) 
+    
+    plt.figure(1)
+    plt.loglog(E, phi_pwr, 'k', E_mg, phi_mg, 'k--', 
+               E, phi_triga, 'b', E_mg, triga_mg, 'b:')
+    plt.xlabel('$E$ (eV)')
+    plt.ylabel('$\phi(E)$')
+    
+    plt.figure(2)
+    plt.loglog(E, E*phi_pwr, 'k', E_mg, phi_mg_pul, 'k--', 
+               E, E*phi_triga, 'b', E_mg, triga_mg_pul, 'b:')
+    plt.xlabel('$E$ (eV)')
+    plt.ylabel('$E\phi(E)$')
+    
+    plt.show()
