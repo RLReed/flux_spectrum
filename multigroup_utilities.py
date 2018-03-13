@@ -2386,11 +2386,11 @@ def energy_groups(structure='wims69', lower=None, upper=None, MeV=False, groups=
     if not lower:
         lower = eb[-1]
     if upper <= eb[1]:
-        print 'upper bound cannot be less than second largest bound'
+        print('upper bound cannot be less than second largest bound')
     elif upper:
         eb[0] = upper
     if lower >= eb[-2]:
-        print 'lower bound cannot be greater than second lowest bound'
+        print('lower bound cannot be greater than second lowest bound')
     elif lower:
         eb[-1] = lower
     if MeV:
@@ -2399,4 +2399,4 @@ def energy_groups(structure='wims69', lower=None, upper=None, MeV=False, groups=
 
 
 if __name__ == '__main__':
-    print energy_groups('lethargy', upper=2e7, groups=14243)
+    print(energy_groups('lethargy', upper=2e7, groups=14243))
